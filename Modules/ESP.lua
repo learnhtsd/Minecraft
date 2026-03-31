@@ -9,82 +9,112 @@ local Camera = game.Workspace.CurrentCamera
 local Settings = {
     Enabled = false,
     Boxes = false,
-    BoxOutline = false,
     Tracers = false,
     Names = false,
-    Chams = false, -- Chams still uses Highlight if supported
-    Health = false,
+    Usernames = false, -- The @ handle
+    Skeletons = false,
+    HealthBars = false,
     Distance = false,
-    Color = Color3.fromRGB(74, 120, 255)
+    TeamCheck = false,
+    FriendCheck = false,
+    WallCheck = false, -- Visibility Check
+    Color = Color3.fromRGB(74, 120, 255),
+    VisibleColor = Color3.fromRGB(0, 255, 100),
+    OccludedColor = Color3.fromRGB(255, 50, 50)
 }
 
 local Cache = {}
 
+-- Skeleton Connection Map (R15 & R6 compatible)
+local SkeletonConnections = {
+    R15 = {
+        {"Head", "UpperTorso"}, {"UpperTorso", "LowerTorso"},
+        {"UpperTorso", "LeftUpperArm"}, {"LeftUpperArm", "LeftLowerArm"}, {"LeftLowerArm", "LeftHand"},
+        {"UpperTorso", "RightUpperArm"}, {"RightUpperArm", "RightLowerArm"}, {"RightLowerArm", "RightHand"},
+        {"LowerTorso", "LeftUpperLeg"}, {"LeftUpperLeg", "LeftLowerLeg"}, {"LeftLowerLeg", "LeftFoot"},
+        {"LowerTorso", "RightUpperLeg"}, {"RightUpperLeg", "RightLowerLeg"}, {"RightLowerLeg", "RightFoot"}
+    },
+    R6 = {
+        {"Head", "Torso"}, {"Torso", "Left Arm"}, {"Torso", "Right Arm"},
+        {"Torso", "Left Leg"}, {"Torso", "Right Leg"}
+    }
+}
+
 -- =========================
--- DRAWING API UTILITIES
+-- UTILITIES
 -- =========================
+
+local function IsVisible(Character)
+    if not Settings.WallCheck then return true end
+    local Part = Character:FindFirstChild("HumanoidRootPart") or Character:FindFirstChild("Head")
+    if not Part then return false end
+    
+    local CastPoints = {Part.Position}
+    local IgnoreList = {LocalPlayer.Character, Character, Camera}
+    local Params = RaycastParams.new()
+    Params.FilterType = Enum.RaycastFilterType.Exclude
+    Params.FilterDescendantsInstances = IgnoreList
+
+    local Result = workspace:Raycast(Camera.CFrame.Position, (Part.Position - Camera.CFrame.Position).Unit * 1000, Params)
+    return Result == nil or Result.Instance:IsDescendantOf(Character)
+end
 
 local function CreateESP(Player)
-    if Player == LocalPlayer then return end
-    if Cache[Player] then return end -- Don't duplicate
+    if Player == LocalPlayer or Cache[Player] then return end
     
-    local Objects = {
-        -- Main Box
+    local Data = {
         Box = Drawing.new("Square"),
-        -- Outline for Box
         BoxOutline = Drawing.new("Square"),
-        -- Tracer
+        HealthBar = Drawing.new("Square"),
+        HealthBarBG = Drawing.new("Square"),
         Tracer = Drawing.new("Line"),
-        -- Text (Names, HP, Distance)
-        Text = Drawing.new("Text")
+        Text = Drawing.new("Text"),
+        SkeletonLines = {}
     }
-    
+
     -- Setup Box
-    Objects.Box.Thickness = 1
-    Objects.Box.Filled = false
-    Objects.Box.Color = Settings.Color
-    Objects.Box.Visible = false
-    Objects.Box.ZIndex = 2
+    Data.Box.Thickness = 1
+    Data.Box.Filled = false
+    Data.Box.ZIndex = 3
+    
+    Data.BoxOutline.Thickness = 1
+    Data.BoxOutline.Color = Color3.new(0,0,0)
+    Data.BoxOutline.ZIndex = 2
 
-    -- Setup Box Outline
-    Objects.BoxOutline.Thickness = 1
-    Objects.BoxOutline.Filled = false
-    Objects.BoxOutline.Color = Color3.fromRGB(0, 0, 0)
-    Objects.BoxOutline.Visible = false
-    Objects.BoxOutline.ZIndex = 1
+    -- Setup Health Bar
+    Data.HealthBar.Thickness = 1
+    Data.HealthBar.Filled = true
+    Data.HealthBar.ZIndex = 4
+    
+    Data.HealthBarBG.Thickness = 1
+    Data.HealthBarBG.Filled = true
+    Data.HealthBarBG.Color = Color3.new(0,0,0)
+    Data.HealthBarBG.ZIndex = 3
 
-    -- Setup Tracer
-    Objects.Tracer.Thickness = 1
-    Objects.Tracer.Color = Settings.Color
-    Objects.Tracer.Visible = false
+    -- Setup Tracer/Text
+    Data.Tracer.Thickness = 1
+    Data.Text.Size = 13
+    Data.Text.Center = true
+    Data.Text.Outline = true
 
-    -- Setup Text
-    Objects.Text.Size = 13
-    Objects.Text.Center = true
-    Objects.Text.Outline = true
-    Objects.Text.OutlineColor = Color3.fromRGB(0, 0, 0)
-    Objects.Text.Color = Color3.fromRGB(255, 255, 255)
-    Objects.Text.Visible = false
+    -- Pre-create Skeleton Lines (max 15 for R15)
+    for i = 1, 15 do
+        local L = Drawing.new("Line")
+        L.Thickness = 1
+        L.Visible = false
+        table.insert(Data.SkeletonLines, L)
+    end
 
-    -- Fallback Cham Highlight (Just in case it works for your executor)
-    local Highlight = Instance.new("Highlight")
-    Highlight.FillColor = Settings.Color
-    Highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-    Highlight.FillTransparency = 0.5
-    Highlight.Enabled = false
-    Objects.Highlight = Highlight
-
-    Cache[Player] = Objects
+    Cache[Player] = Data
 end
 
 local function RemoveESP(Player)
     local Data = Cache[Player]
     if Data then
-        Data.Box:Remove()
-        Data.BoxOutline:Remove()
-        Data.Tracer:Remove()
-        Data.Text:Remove()
-        if Data.Highlight then Data.Highlight:Destroy() end
+        for _, v in pairs(Data) do
+            if type(v) == "table" then for _, l in pairs(v) do l:Remove() end
+            elseif v.Remove then v:Remove() end
+        end
         Cache[Player] = nil
     end
 end
@@ -99,90 +129,102 @@ RunService.RenderStepped:Connect(function()
     for Player, Data in pairs(Cache) do
         local Character = Player.Character
         local Root = Character and Character:FindFirstChild("HumanoidRootPart")
-        local Head = Character and Character:FindFirstChild("Head")
         local Hum = Character and Character:FindFirstChild("Humanoid")
 
-        if Root and Head and Hum and Hum.Health > 0 then
+        -- Filter Checks
+        local IsTeammate = Player.Team == LocalPlayer.Team
+        local IsFriend = LocalPlayer:IsFriendsWith(Player.UserId)
+        local ShouldShow = true
+
+        if Settings.TeamCheck and IsTeammate then ShouldShow = false end
+        if Settings.FriendCheck and IsFriend then ShouldShow = false end
+
+        if Root and Hum and Hum.Health > 0 and ShouldShow then
             local RootPos, OnScreen = Camera:WorldToViewportPoint(Root.Position)
+            local Visible = IsVisible(Character)
+            local CurrentColor = Visible and Settings.VisibleColor or Settings.OccludedColor
             
             if OnScreen then
-                -- Calculate 2D Box based on Character Scale
+                local Head = Character:FindFirstChild("Head")
                 local HeadPos = Camera:WorldToViewportPoint(Head.Position + Vector3.new(0, 0.5, 0))
                 local LegPos = Camera:WorldToViewportPoint(Root.Position - Vector3.new(0, 3, 0))
-                
                 local Height = math.abs(HeadPos.Y - LegPos.Y)
-                local Width = Height / 2
-                
-                -- Update Box
+                local Width = Height / 1.5
+                local TopLeft = Vector2.new(RootPos.X - Width / 2, RootPos.Y - Height / 2)
+
+                -- 1. Boxes
+                Data.Box.Visible = Settings.Boxes
+                Data.BoxOutline.Visible = Settings.Boxes
                 if Settings.Boxes then
-                    local boxPos = Vector2.new(RootPos.X - Width / 2, RootPos.Y - Height / 2)
-                    local boxSize = Vector2.new(Width, Height)
-                    
-                    Data.Box.Position = boxPos
-                    Data.Box.Size = boxSize
-                    Data.Box.Visible = true
-                    
-                    if Settings.BoxOutline then
-                        Data.BoxOutline.Position = boxPos - Vector2.new(1, 1)
-                        Data.BoxOutline.Size = boxSize + Vector2.new(2, 2)
-                        Data.BoxOutline.Visible = true
-                    else
-                        Data.BoxOutline.Visible = false
-                    end
-                else
-                    Data.Box.Visible = false
-                    Data.BoxOutline.Visible = false
+                    Data.Box.Position = TopLeft
+                    Data.Box.Size = Vector2.new(Width, Height)
+                    Data.Box.Color = CurrentColor
+                    Data.BoxOutline.Position = TopLeft - Vector2.new(1,1)
+                    Data.BoxOutline.Size = Data.Box.Size + Vector2.new(2,2)
                 end
 
-                -- Update Tracers
+                -- 2. Health Bar
+                Data.HealthBar.Visible = Settings.HealthBars
+                Data.HealthBarBG.Visible = Settings.HealthBars
+                if Settings.HealthBars then
+                    local BarHeight = Height * (Hum.Health / Hum.MaxHealth)
+                    Data.HealthBarBG.Position = TopLeft - Vector2.new(6, 0)
+                    Data.HealthBarBG.Size = Vector2.new(4, Height)
+                    
+                    Data.HealthBar.Position = TopLeft - Vector2.new(5, -Height + BarHeight)
+                    Data.HealthBar.Size = Vector2.new(2, -BarHeight)
+                    Data.HealthBar.Color = Color3.new(1, 0, 0):Lerp(Color3.new(0, 1, 0), Hum.Health / Hum.MaxHealth)
+                end
+
+                -- 3. Skeleton
+                if Settings.Skeletons then
+                    local RigType = (Hum.RigType == Enum.HumanoidRigType.R15) and "R15" or "R6"
+                    local Connections = SkeletonConnections[RigType]
+                    for i, Pair in pairs(Connections) do
+                        local PartA, PartB = Character:FindFirstChild(Pair[1]), Character:FindFirstChild(Pair[2])
+                        if PartA and PartB then
+                            local PosA = Camera:WorldToViewportPoint(PartA.Position)
+                            local PosB = Camera:WorldToViewportPoint(PartB.Position)
+                            local Line = Data.SkeletonLines[i]
+                            Line.From = Vector2.new(PosA.X, PosA.Y)
+                            Line.To = Vector2.new(PosB.X, PosB.Y)
+                            Line.Color = CurrentColor
+                            Line.Visible = true
+                        end
+                    end
+                else
+                    for _, L in pairs(Data.SkeletonLines) do L.Visible = false end
+                end
+
+                -- 4. Text
+                Data.Text.Visible = (Settings.Names or Settings.Usernames or Settings.Distance)
+                if Data.Text.Visible then
+                    local Content = ""
+                    if Settings.Names then Content = Content .. Player.DisplayName .. "\n" end
+                    if Settings.Usernames then Content = Content .. "@" .. Player.Name .. "\n" end
+                    if Settings.Distance then 
+                        local Dist = math.floor((Root.Position - Camera.CFrame.Position).Magnitude)
+                        Content = Content .. "[" .. Dist .. " studs]"
+                    end
+                    Data.Text.Text = Content
+                    Data.Text.Position = Vector2.new(RootPos.X, RootPos.Y + (Height/2) + 2)
+                    Data.Text.Color = Color3.new(1,1,1)
+                end
+
+                -- 5. Tracers
+                Data.Tracer.Visible = Settings.Tracers
                 if Settings.Tracers then
                     Data.Tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
                     Data.Tracer.To = Vector2.new(RootPos.X, RootPos.Y)
-                    Data.Tracer.Visible = true
-                else
-                    Data.Tracer.Visible = false
-                end
-
-                -- Update Text (Names, Health, Distance)
-                if Settings.Names or Settings.Health or Settings.Distance then
-                    local DisplayStr = ""
-                    
-                    if Settings.Names then DisplayStr = DisplayStr .. Player.Name .. "\n" end
-                    if Settings.Health then DisplayStr = DisplayStr .. "HP: " .. math.floor(Hum.Health) .. "%\n" end
-                    if Settings.Distance then
-                        local Dist = math.floor((Root.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude)
-                        DisplayStr = DisplayStr .. "[" .. Dist .. " studs]"
-                    end
-                    
-                    Data.Text.Text = DisplayStr
-                    Data.Text.Position = Vector2.new(RootPos.X, RootPos.Y + (Height / 2) + 5)
-                    Data.Text.Visible = true
-                else
-                    Data.Text.Visible = false
-                end
-                
-                -- Update Chams (Will only work if executor doesn't block Highlights)
-                if Settings.Chams then
-                    Data.Highlight.Parent = Character
-                    Data.Highlight.Enabled = true
-                else
-                    Data.Highlight.Enabled = false
+                    Data.Tracer.Color = CurrentColor
                 end
             else
                 -- Offscreen cleanup
-                Data.Box.Visible = false
-                Data.BoxOutline.Visible = false
-                Data.Tracer.Visible = false
-                Data.Text.Visible = false
-                Data.Highlight.Enabled = false
+                for _, v in pairs(Data) do if type(v) == "table" then for _, l in pairs(v) do l.Visible = false end elseif v.Visible then v.Visible = false end end
             end
         else
-            -- Dead/Invisible player cleanup
-            Data.Box.Visible = false
-            Data.BoxOutline.Visible = false
-            Data.Tracer.Visible = false
-            Data.Text.Visible = false
-            Data.Highlight.Enabled = false
+            -- Dead/Filtered cleanup
+            for _, v in pairs(Data) do if type(v) == "table" then for _, l in pairs(v) do l.Visible = false end elseif v.Visible then v.Visible = false end end
         end
     end
 end)
@@ -192,54 +234,30 @@ end)
 -- =========================
 
 function ESPModule.Init(Tab, Lib)
-    Tab:CreateSection("ESP Master Switch")
-
-    Tab:CreateToggle("Enable ESP", false, function(state)
-        Settings.Enabled = state
-        if state then
-            for _, p in pairs(Players:GetPlayers()) do CreateESP(p) end
-        else
-            for _, p in pairs(Players:GetPlayers()) do RemoveESP(p) end
-        end
+    Tab:CreateSection("Main")
+    Tab:CreateToggle("Enable ESP", false, function(s) 
+        Settings.Enabled = s 
+        if s then for _, p in pairs(Players:GetPlayers()) do CreateESP(p) end
+        else for _, p in pairs(Players:GetPlayers()) do RemoveESP(p) end end
     end)
 
     Tab:CreateSection("Visuals")
-
-    Tab:CreateToggle("Boxes", false, function(state)
-        Settings.Boxes = state
-    end)
-
-    Tab:CreateToggle("Box Outline", false, function(state)
-        Settings.BoxOutline = state
-    end)
-
-    Tab:CreateToggle("Tracers", false, function(state)
-        Settings.Tracers = state
-    end)
-
-    Tab:CreateToggle("Chams (Glow)", false, function(state)
-        Settings.Chams = state
-    end)
+    Tab:CreateToggle("Boxes (Outlined)", false, function(s) Settings.Boxes = s end)
+    Tab:CreateToggle("Skeleton", false, function(s) Settings.Skeletons = s end)
+    Tab:CreateToggle("Health Bars", false, function(s) Settings.HealthBars = s end)
+    Tab:CreateToggle("Tracers", false, function(s) Settings.Tracers = s end)
 
     Tab:CreateSection("Text Info")
+    Tab:CreateToggle("Show Display Name", false, function(s) Settings.Names = s end)
+    Tab:CreateToggle("Show Username (@)", false, function(s) Settings.Usernames = s end)
+    Tab:CreateToggle("Show Distance", false, function(s) Settings.Distance = s end)
 
-    Tab:CreateToggle("Show Names", false, function(state)
-        Settings.Names = state
-    end)
+    Tab:CreateSection("Filters & Performance")
+    Tab:CreateToggle("Wall Check (Visible Only)", false, function(s) Settings.WallCheck = s end)
+    Tab:CreateToggle("Team Check", false, function(s) Settings.TeamCheck = s end)
+    Tab:CreateToggle("Friend Check", false, function(s) Settings.FriendCheck = s end)
 
-    Tab:CreateToggle("Show Health", false, function(state)
-        Settings.Health = state
-    end)
-
-    Tab:CreateToggle("Show Distance", false, function(state)
-        Settings.Distance = state
-    end)
-
-    -- Dynamic listeners for joining/leaving players
-    Players.PlayerAdded:Connect(function(p)
-        if Settings.Enabled then CreateESP(p) end
-    end)
-    
+    Players.PlayerAdded:Connect(function(p) if Settings.Enabled then CreateESP(p) end end)
     Players.PlayerRemoving:Connect(RemoveESP)
 end
 
