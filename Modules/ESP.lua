@@ -255,64 +255,64 @@ end)
 -- =========================
 
 function ESPModule.Init(Tab, Lib)
+    -- 1. Main Section (This is working for you)
     Tab:CreateSection("Main")
-    
     Tab:CreateToggle("Enable ESP", false, function(s) 
         Settings.Enabled = s 
         if s then 
-            for _, p in pairs(Players:GetPlayers()) do CreateESP(p) end
+            for _, p in pairs(game.Players:GetPlayers()) do CreateESP(p) end
         else 
-            for _, p in pairs(Players:GetPlayers()) do RemoveESP(p) end 
+            for _, p in pairs(game.Players:GetPlayers()) do RemoveESP(p) end 
         end
     end)
 
+    -- 2. Quick Actions (Using your CreateAction syntax)
     Tab:CreateSection("Quick Actions")
     
-    -- Using CreateAction(Title, ButtonText, Callback) per your UI Engine
-    Tab:CreateAction("Master Toggle", "Enable All", function()
-        Settings.Boxes = true
-        Settings.Skeletons = true
-        Settings.HealthBars = true
-        Settings.Tracers = true
-        Settings.Names = true
-        Settings.Usernames = true
-        Settings.Distance = true
-        -- Note: Toggles in the UI won't visually slide 'On', 
-        -- but the features will start working immediately.
+    -- Wrapped in pcall to ensure the rest of the tab loads even if these fail
+    pcall(function()
+        Tab:CreateAction("Master Switch", "Enable All", function()
+            Settings.Boxes = true
+            Settings.Skeletons = true
+            Settings.HealthBars = true
+            Settings.Tracers = true
+            Settings.Names = true
+            Settings.Distance = true
+        end)
+
+        Tab:CreateAction("Master Switch", "Disable All", function()
+            Settings.Boxes = false
+            Settings.Skeletons = false
+            Settings.HealthBars = false
+            Settings.Tracers = false
+            Settings.Names = false
+            Settings.Distance = false
+        end)
     end)
 
-    Tab:CreateAction("Master Toggle", "Disable All", function()
-        Settings.Boxes = false
-        Settings.Skeletons = false
-        Settings.HealthBars = false
-        Settings.Tracers = false
-        Settings.Names = false
-        Settings.Usernames = false
-        Settings.Distance = false
-    end)
-
+    -- 3. Visuals Section
     Tab:CreateSection("Visuals")
     Tab:CreateToggle("Boxes (Outlined)", false, function(s) Settings.Boxes = s end)
     Tab:CreateToggle("Skeleton", false, function(s) Settings.Skeletons = s end)
     Tab:CreateToggle("Health Bars", false, function(s) Settings.HealthBars = s end)
     Tab:CreateToggle("Tracers", false, function(s) Settings.Tracers = s end)
 
+    -- 4. Text Info Section
     Tab:CreateSection("Text Info")
     Tab:CreateToggle("Show Display Name", false, function(s) Settings.Names = s end)
     Tab:CreateToggle("Show Username (@)", false, function(s) Settings.Usernames = s end)
     Tab:CreateToggle("Show Distance", false, function(s) Settings.Distance = s end)
 
-    Tab:CreateSection("Filters & Performance")
-    Tab:CreateToggle("Wall Check (Visible Only)", false, function(s) Settings.WallCheck = s end)
+    -- 5. Filters
+    Tab:CreateSection("Filters")
+    Tab:CreateToggle("Wall Check", false, function(s) Settings.WallCheck = s end)
     Tab:CreateToggle("Team Check", false, function(s) Settings.TeamCheck = s end)
-    Tab:CreateToggle("Friend Check", false, function(s) Settings.FriendCheck = s end)
 
-    -- Player Event Listeners
-    Players.PlayerAdded:Connect(function(p) 
+    -- Setup Listeners
+    game.Players.PlayerAdded:Connect(function(p) 
         if Settings.Enabled then CreateESP(p) end 
     end)
-    
-    Players.PlayerRemoving:Connect(RemoveESP)
+    game.Players.PlayerRemoving:Connect(RemoveESP)
 end
 
 return ESPModule
