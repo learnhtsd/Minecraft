@@ -691,6 +691,7 @@ local HomeTab     = HubWindow:CreateTab("Home")
 local PlayerTab   = HubWindow:CreateTab("Player")
 local WorldTab    = HubWindow:CreateTab("World")
 local TeleportTab = HubWindow:CreateTab("Teleport")  
+local VisualsTab = HubWindow:CreateTab("Visuals")  
 local SettingsTab = HubWindow:CreateTab("Settings")
 
 local function LoadModule(ModuleName)
@@ -717,6 +718,9 @@ if TeleportModule and TeleportModule.Init then TeleportModule.Init(TeleportTab) 
 
 local WorldModule = LoadModule("World")
 if WorldModule and WorldModule.Init then WorldModule.Init(WorldTab, Library) end
+
+local ESPModule = LoadModule("ESP")
+if ESPModule and ESPModule.Init then ESPModule.Init(VisualsTab, Library) end
 
 local SettingsModule = LoadModule("Settings")
 if SettingsModule and SettingsModule.Init then
