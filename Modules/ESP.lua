@@ -15,6 +15,11 @@ local Settings = {
     Skeletons = false,
     HealthBars = false,
     Distance = false,
+    -- NEW FEATURES
+    Chams = false,
+    LookLines = false,
+    HeadDots = false,
+    
     TeamCheck = false,
     FriendCheck = false,
     WallCheck = false,
@@ -25,7 +30,6 @@ local Settings = {
 
 local Cache = {}
 
--- Skeleton Connection Map
 local SkeletonConnections = {
     R15 = {
         {"Head", "UpperTorso"}, {"UpperTorso", "LowerTorso"},
@@ -49,14 +53,12 @@ local function IsVisible(Character)
     local Part = Character:FindFirstChild("HumanoidRootPart") or Character:FindFirstChild("Head")
     if not Part then return false end
     
-    local CastPoints = {Part.Position}
-    local IgnoreList = {LocalPlayer.Character, Character, Camera}
     local Params = RaycastParams.new()
     Params.FilterType = Enum.RaycastFilterType.Exclude
-    Params.FilterDescendantsInstances = IgnoreList
+    Params.FilterDescendantsInstances = {LocalPlayer.Character, Character, Camera}
 
     local Result = workspace:Raycast(Camera.CFrame.Position, (Part.Position - Camera.CFrame.Position).Unit * 1000, Params)
-    return Result == nil or Result.Instance:IsDescendantOf(Character)
+    return Result == nil
 end
 
 local function CreateESP(Player)
@@ -68,28 +70,25 @@ local function CreateESP(Player)
         HealthBar = Drawing.new("Square"),
         HealthBarBG = Drawing.new("Square"),
         Tracer = Drawing.new("Line"),
+        LookLine = Drawing.new("Line"), -- NEW
+        HeadDot = Drawing.new("Circle"), -- NEW
         Text = Drawing.new("Text"),
-        SkeletonLines = {}
+        SkeletonLines = {},
+        Highlight = nil -- NEW (Instance based)
     }
 
+    -- Basic Setup
     Data.Box.Thickness = 1
-    Data.Box.Filled = false
-    Data.Box.ZIndex = 3
-    
     Data.BoxOutline.Thickness = 1
     Data.BoxOutline.Color = Color3.new(0,0,0)
-    Data.BoxOutline.ZIndex = 2
-
-    Data.HealthBar.Thickness = 1
     Data.HealthBar.Filled = true
-    Data.HealthBar.ZIndex = 4
-    
-    Data.HealthBarBG.Thickness = 1
-    Data.HealthBarBG.Filled = true
     Data.HealthBarBG.Color = Color3.new(0,0,0)
-    Data.HealthBarBG.ZIndex = 3
-
+    Data.HealthBarBG.Filled = true
     Data.Tracer.Thickness = 1
+    Data.LookLine.Thickness = 1
+    Data.HeadDot.Thickness = 1
+    Data.HeadDot.Filled = true
+    Data.HeadDot.Radius = 3
     Data.Text.Size = 13
     Data.Text.Center = true
     Data.Text.Outline = true
@@ -97,7 +96,6 @@ local function CreateESP(Player)
     for i = 1, 15 do
         local L = Drawing.new("Line")
         L.Thickness = 1
-        L.Visible = false
         table.insert(Data.SkeletonLines, L)
     end
 
@@ -107,28 +105,31 @@ end
 local function RemoveESP(Player)
     local Data = Cache[Player]
     if Data then
+        if Data.Highlight then Data.Highlight:Destroy() end
         for _, v in pairs(Data) do
             if type(v) == "table" then 
                 for _, l in pairs(v) do l:Remove() end
-            elseif v.Remove then 
+            elseif type(v) == "table" and v.Remove then 
                 v:Remove() 
+            elseif typeof(v) == "userdata" and v.Remove then
+                v:Remove()
             end
         end
         Cache[Player] = nil
     end
 end
 
--- Dedicated helper to safely hide ESP without crashing/freezing
 local function HideESP(Data)
     Data.Box.Visible = false
     Data.BoxOutline.Visible = false
     Data.HealthBar.Visible = false
     Data.HealthBarBG.Visible = false
     Data.Tracer.Visible = false
+    Data.LookLine.Visible = false
+    Data.HeadDot.Visible = false
     Data.Text.Visible = false
-    for _, L in pairs(Data.SkeletonLines) do 
-        L.Visible = false 
-    end
+    if Data.Highlight then Data.Highlight.Enabled = false end
+    for _, L in pairs(Data.SkeletonLines) do L.Visible = false end
 end
 
 -- =========================
@@ -142,25 +143,31 @@ RunService.RenderStepped:Connect(function()
         local Character = Player.Character
         local Root = Character and Character:FindFirstChild("HumanoidRootPart")
         local Hum = Character and Character:FindFirstChild("Humanoid")
+        local Head = Character and Character:FindFirstChild("Head")
 
-        local IsTeammate = Player.Team == LocalPlayer.Team
-        local IsFriend = LocalPlayer:IsFriendsWith(Player.UserId)
-        local ShouldShow = true
-
-        if Settings.TeamCheck and IsTeammate then ShouldShow = false end
-        if Settings.FriendCheck and IsFriend then ShouldShow = false end
-
-        if Root and Hum and Hum.Health > 0 and ShouldShow then
+        if Root and Hum and Hum.Health > 0 then
             local RootPos, OnScreen = Camera:WorldToViewportPoint(Root.Position)
             local Visible = IsVisible(Character)
             local CurrentColor = Visible and Settings.VisibleColor or Settings.OccludedColor
             
-            -- RootPos.Z > 0 ensures the player isn't actively behind the camera's near-plane
+            -- CHAMS LOGIC (Highlights)
+            if Settings.Chams then
+                if not Data.Highlight then
+                    Data.Highlight = Instance.new("Highlight")
+                    Data.Highlight.Parent = game:GetService("CoreGui") -- Hidden from game
+                end
+                Data.Highlight.Adornee = Character
+                Data.Highlight.Enabled = true
+                Data.Highlight.FillColor = CurrentColor
+                Data.Highlight.OutlineColor = Color3.new(1,1,1)
+                Data.Highlight.FillTransparency = 0.5
+            elseif Data.Highlight then
+                Data.Highlight.Enabled = false
+            end
+
             if OnScreen and RootPos.Z > 0 then
-                local Head = Character:FindFirstChild("Head")
                 local HeadPos = Camera:WorldToViewportPoint(Head.Position + Vector3.new(0, 0.5, 0))
                 local LegPos = Camera:WorldToViewportPoint(Root.Position - Vector3.new(0, 3, 0))
-                
                 local Height = math.abs(HeadPos.Y - LegPos.Y)
                 local Width = Height / 1.5
                 local TopLeft = Vector2.new(RootPos.X - Width / 2, RootPos.Y - Height / 2)
@@ -172,69 +179,53 @@ RunService.RenderStepped:Connect(function()
                     Data.Box.Position = TopLeft
                     Data.Box.Size = Vector2.new(Width, Height)
                     Data.Box.Color = CurrentColor
-                    
                     Data.BoxOutline.Position = TopLeft - Vector2.new(1,1)
                     Data.BoxOutline.Size = Data.Box.Size + Vector2.new(2,2)
                 end
 
-                -- 2. Health Bar (Fixed Layout Math)
+                -- 2. Look Lines (Aim Direction)
+                Data.LookLine.Visible = Settings.LookLines
+                if Settings.LookLines then
+                    local LookAt = Head.Position + (Head.CFrame.LookVector * 5)
+                    local LookPos = Camera:WorldToViewportPoint(LookAt)
+                    Data.LookLine.From = Vector2.new(HeadPos.X, HeadPos.Y)
+                    Data.LookLine.To = Vector2.new(LookPos.X, LookPos.Y)
+                    Data.LookLine.Color = Color3.new(1, 1, 1)
+                end
+
+                -- 3. Head Dots
+                Data.HeadDot.Visible = Settings.HeadDots
+                if Settings.HeadDots then
+                    Data.HeadDot.Position = Vector2.new(HeadPos.X, HeadPos.Y)
+                    Data.HeadDot.Color = CurrentColor
+                end
+
+                -- 4. Health Bar
                 Data.HealthBar.Visible = Settings.HealthBars
                 Data.HealthBarBG.Visible = Settings.HealthBars
                 if Settings.HealthBars then
-                    -- Clamp health to prevent bar from growing outside box if overhealed
                     local HealthScale = math.clamp(Hum.Health / Hum.MaxHealth, 0, 1)
-                    local BarHeight = Height * HealthScale
-                    
-                    -- Background (Black Outline)
                     Data.HealthBarBG.Position = Vector2.new(TopLeft.X - 6, TopLeft.Y)
                     Data.HealthBarBG.Size = Vector2.new(4, Height)
-                    
-                    -- Inner Health Bar (Green/Red)
-                    Data.HealthBar.Position = Vector2.new(TopLeft.X - 5, TopLeft.Y + Height - BarHeight + 1)
-                    Data.HealthBar.Size = Vector2.new(2, BarHeight - 2)
+                    Data.HealthBar.Position = Vector2.new(TopLeft.X - 5, TopLeft.Y + Height - (Height * HealthScale) + 1)
+                    Data.HealthBar.Size = Vector2.new(2, (Height * HealthScale) - 2)
                     Data.HealthBar.Color = Color3.new(1, 0, 0):Lerp(Color3.new(0, 1, 0), HealthScale)
                 end
 
-                -- 3. Skeleton
-                if Settings.Skeletons then
-                    local RigType = (Hum.RigType == Enum.HumanoidRigType.R15) and "R15" or "R6"
-                    local Connections = SkeletonConnections[RigType]
-                    for i, Pair in pairs(Connections) do
-                        local PartA, PartB = Character:FindFirstChild(Pair[1]), Character:FindFirstChild(Pair[2])
-                        local Line = Data.SkeletonLines[i]
-                        
-                        if PartA and PartB then
-                            local PosA = Camera:WorldToViewportPoint(PartA.Position)
-                            local PosB = Camera:WorldToViewportPoint(PartB.Position)
-                            
-                            Line.From = Vector2.new(PosA.X, PosA.Y)
-                            Line.To = Vector2.new(PosB.X, PosB.Y)
-                            Line.Color = CurrentColor
-                            Line.Visible = true
-                        else
-                            Line.Visible = false
-                        end
-                    end
-                else
-                    for _, L in pairs(Data.SkeletonLines) do L.Visible = false end
-                end
-
-                -- 4. Text
+                -- 5. Text Info
                 Data.Text.Visible = (Settings.Names or Settings.Usernames or Settings.Distance)
                 if Data.Text.Visible then
                     local Content = ""
                     if Settings.Names then Content = Content .. Player.DisplayName .. "\n" end
                     if Settings.Usernames then Content = Content .. "@" .. Player.Name .. "\n" end
                     if Settings.Distance then 
-                        local Dist = math.floor((Root.Position - Camera.CFrame.Position).Magnitude)
-                        Content = Content .. "[" .. Dist .. " studs]"
+                        Content = Content .. "[" .. math.floor(RootPos.Z) .. "m]"
                     end
                     Data.Text.Text = Content
                     Data.Text.Position = Vector2.new(RootPos.X, RootPos.Y + (Height/2) + 2)
-                    Data.Text.Color = Color3.new(1,1,1)
                 end
 
-                -- 5. Tracers
+                -- Tracers
                 Data.Tracer.Visible = Settings.Tracers
                 if Settings.Tracers then
                     Data.Tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
@@ -242,10 +233,10 @@ RunService.RenderStepped:Connect(function()
                     Data.Tracer.Color = CurrentColor
                 end
             else
-                HideESP(Data) -- Properly hide when offscreen
+                HideESP(Data)
             end
         else
-            HideESP(Data) -- Properly hide when dead or filtered
+            HideESP(Data)
         end
     end
 end)
@@ -255,64 +246,36 @@ end)
 -- =========================
 
 function ESPModule.Init(Tab, Lib)
-    -- 1. Main Section (This is working for you)
     Tab:CreateSection("Main")
     Tab:CreateToggle("Enable ESP", false, function(s) 
         Settings.Enabled = s 
         if s then 
-            for _, p in pairs(game.Players:GetPlayers()) do CreateESP(p) end
+            for _, p in pairs(Players:GetPlayers()) do CreateESP(p) end
         else 
-            for _, p in pairs(game.Players:GetPlayers()) do RemoveESP(p) end 
+            for _, p in pairs(Players:GetPlayers()) do RemoveESP(p) end 
         end
     end)
 
-    -- 2. Quick Actions (Using your CreateAction syntax)
-    Tab:CreateSection("Quick Actions")
-    
-    -- Wrapped in pcall to ensure the rest of the tab loads even if these fail
-    pcall(function()
-        Tab:CreateAction("Master Switch", "Enable All", function()
-            Settings.Boxes = true
-            Settings.Skeletons = true
-            Settings.HealthBars = true
-            Settings.Tracers = true
-            Settings.Names = true
-            Settings.Distance = true
-        end)
+    Tab:CreateSection("Advanced Visuals")
+    Tab:CreateToggle("Chams (Glow)", false, function(s) Settings.Chams = s end)
+    Tab:CreateToggle("Look Lines", false, function(s) Settings.LookLines = s end)
+    Tab:CreateToggle("Head Dots", false, function(s) Settings.HeadDots = s end)
 
-        Tab:CreateAction("Master Switch", "Disable All", function()
-            Settings.Boxes = false
-            Settings.Skeletons = false
-            Settings.HealthBars = false
-            Settings.Tracers = false
-            Settings.Names = false
-            Settings.Distance = false
-        end)
-    end)
-
-    -- 3. Visuals Section
-    Tab:CreateSection("Visuals")
-    Tab:CreateToggle("Boxes (Outlined)", false, function(s) Settings.Boxes = s end)
-    Tab:CreateToggle("Skeleton", false, function(s) Settings.Skeletons = s end)
+    Tab:CreateSection("Standard Visuals")
+    Tab:CreateToggle("Boxes", false, function(s) Settings.Boxes = s end)
     Tab:CreateToggle("Health Bars", false, function(s) Settings.HealthBars = s end)
     Tab:CreateToggle("Tracers", false, function(s) Settings.Tracers = s end)
 
-    -- 4. Text Info Section
-    Tab:CreateSection("Text Info")
-    Tab:CreateToggle("Show Display Name", false, function(s) Settings.Names = s end)
-    Tab:CreateToggle("Show Username (@)", false, function(s) Settings.Usernames = s end)
+    Tab:CreateSection("Text Settings")
+    Tab:CreateToggle("Show Name", false, function(s) Settings.Names = s end)
     Tab:CreateToggle("Show Distance", false, function(s) Settings.Distance = s end)
 
-    -- 5. Filters
     Tab:CreateSection("Filters")
     Tab:CreateToggle("Wall Check", false, function(s) Settings.WallCheck = s end)
     Tab:CreateToggle("Team Check", false, function(s) Settings.TeamCheck = s end)
 
-    -- Setup Listeners
-    game.Players.PlayerAdded:Connect(function(p) 
-        if Settings.Enabled then CreateESP(p) end 
-    end)
-    game.Players.PlayerRemoving:Connect(RemoveESP)
+    Players.PlayerAdded:Connect(function(p) if Settings.Enabled then CreateESP(p) end end)
+    Players.PlayerRemoving:Connect(RemoveESP)
 end
 
 return ESPModule
