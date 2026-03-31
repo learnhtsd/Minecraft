@@ -1,7 +1,7 @@
 local User = "learnhtsd"
 local Repo = "Minecraft"
 local Branch = "main" 
-local Version = "v0.0.009"
+local Version = "v0.0.010"
 
 -- ==========================================
 -- UI ENGINE START
@@ -721,6 +721,9 @@ if WorldModule and WorldModule.Init then WorldModule.Init(WorldTab, Library) end
 
 local ESPModule = LoadModule("ESP")
 if ESPModule and ESPModule.Init then ESPModule.Init(VisualsTab, Library) end
+
+local TeleportModule = LoadModule("Teleport")
+if TeleportModule and TeleportModule.Init then TeleportModule.Init(VisualsTab, Library) end
 
 local SettingsModule = LoadModule("Settings")
 if SettingsModule and SettingsModule.Init then
