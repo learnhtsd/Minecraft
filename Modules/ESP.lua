@@ -43,6 +43,16 @@ local SkeletonConnections = {
 -- UTILITIES
 -- =========================
 
+local function HideESP(Data)
+    Data.Box.Visible = false
+    Data.BoxOutline.Visible = false
+    Data.HealthBar.Visible = false
+    Data.HealthBarBG.Visible = false
+    Data.Tracer.Visible = false
+    Data.Text.Visible = false
+    for _, L in pairs(Data.SkeletonLines) do L.Visible = false end
+end
+
 local function IsVisible(Character)
     if not Settings.WallCheck then return true end
     local Part = Character:FindFirstChild("HumanoidRootPart") or Character:FindFirstChild("Head")
@@ -54,16 +64,6 @@ local function IsVisible(Character)
 
     local Result = workspace:Raycast(Camera.CFrame.Position, (Part.Position - Camera.CFrame.Position).Unit * 1000, Params)
     return Result == nil
-end
-
-local function HideESP(Data)
-    Data.Box.Visible = false
-    Data.BoxOutline.Visible = false
-    Data.HealthBar.Visible = false
-    Data.HealthBarBG.Visible = false
-    Data.Tracer.Visible = false
-    Data.Text.Visible = false
-    for _, L in pairs(Data.SkeletonLines) do L.Visible = false end
 end
 
 local function CreateESP(Player)
@@ -106,19 +106,8 @@ local function CreateESP(Player)
     Cache[Player] = Data
 end
 
-local function RemoveESP(Player)
-    local Data = Cache[Player]
-    if Data then
-        for _, v in pairs(Data) do
-            if type(v) == "table" then for _, l in pairs(v) do l:Remove() end
-            elseif v.Remove then v:Remove() end
-        end
-        Cache[Player] = nil
-    end
-end
-
 -- =========================
--- UPDATE LOOP
+-- MAIN LOOP
 -- =========================
 
 RunService.RenderStepped:Connect(function()
@@ -140,7 +129,8 @@ RunService.RenderStepped:Connect(function()
             local IsFriend = LocalPlayer:IsFriendsWith(Player.UserId)
             local BlockedByFilter = (Settings.TeamCheck and IsTeammate) or (Settings.FriendCheck and IsFriend)
 
-            if OnScreen and not BlockedByFilter then
+            -- FIX: Ensure Z is positive (not behind camera) and player is on screen
+            if OnScreen and RootPos.Z > 0 and not BlockedByFilter then
                 local Visible = IsVisible(Character)
                 local CurrentColor = Visible and Settings.VisibleColor or Settings.OccludedColor
                 
@@ -151,7 +141,7 @@ RunService.RenderStepped:Connect(function()
                 local Width = Height / 1.5
                 local TopLeft = Vector2.new(RootPos.X - Width / 2, RootPos.Y - Height / 2)
 
-                -- 1. Boxes (Default Outlined)
+                -- 1. Boxes
                 if Settings.Boxes then
                     Data.Box.Position = TopLeft
                     Data.Box.Size = Vector2.new(Width, Height)
@@ -166,19 +156,18 @@ RunService.RenderStepped:Connect(function()
                     Data.BoxOutline.Visible = false
                 end
 
-                -- 2. Health Bar (Improved Visuals)
+                -- 2. Health Bar (Refined Math)
                 if Settings.HealthBars then
                     local HealthPercent = Hum.Health / Hum.MaxHealth
-                    local BarHeight = Height * HealthPercent
+                    local HealthHeight = Height * HealthPercent
                     
-                    -- Background (The black border)
-                    Data.HealthBarBG.Position = TopLeft - Vector2.new(5, 0)
+                    Data.HealthBarBG.Position = Vector2.new(TopLeft.X - 5, TopLeft.Y)
                     Data.HealthBarBG.Size = Vector2.new(3, Height)
                     Data.HealthBarBG.Visible = true
                     
-                    -- Foreground (The actual health)
-                    Data.HealthBar.Position = TopLeft - Vector2.new(4, -Height + BarHeight - 1)
-                    Data.HealthBar.Size = Vector2.new(1, -BarHeight + 2)
+                    -- Draws from the bottom up correctly
+                    Data.HealthBar.Position = Vector2.new(TopLeft.X - 4, TopLeft.Y + (Height - HealthHeight))
+                    Data.HealthBar.Size = Vector2.new(1, HealthHeight)
                     Data.HealthBar.Color = Color3.new(1, 0, 0):Lerp(Color3.new(0, 1, 0), HealthPercent)
                     Data.HealthBar.Visible = true
                 else
@@ -186,7 +175,7 @@ RunService.RenderStepped:Connect(function()
                     Data.HealthBarBG.Visible = false
                 end
 
-                -- 3. Skeleton
+                -- 3. Skeletons
                 if Settings.Skeletons then
                     local RigType = (Hum.RigType == Enum.HumanoidRigType.R15) and "R15" or "R6"
                     local Connections = SkeletonConnections[RigType]
@@ -208,7 +197,7 @@ RunService.RenderStepped:Connect(function()
                     for _, L in pairs(Data.SkeletonLines) do L.Visible = false end
                 end
 
-                -- 4. Text (Username + Display Name)
+                -- 4. Text
                 if Settings.Names or Settings.Usernames or Settings.Distance then
                     local Content = ""
                     if Settings.Names then Content = Content .. Player.DisplayName .. "\n" end
@@ -234,10 +223,10 @@ RunService.RenderStepped:Connect(function()
                     Data.Tracer.Visible = false
                 end
             else
-                HideESP(Data)
+                HideESP(Data) -- Instantly clear if off-screen
             end
         else
-            HideESP(Data)
+            if Data then HideESP(Data) end
         end
     end
 end)
@@ -247,9 +236,10 @@ end)
 -- =========================
 
 function ESPModule.Init(Tab, Lib)
-    Tab:CreateSection("Master Controls")
-
-    Tab:CreateButton("Enable All Visuals", function()
+    -- UI Sections first to ensure they render
+    local Master = Tab:CreateSection("Master Controls")
+    
+    Master:CreateButton("Enable All Visuals", function()
         Settings.Enabled = true
         Settings.Boxes = true
         Settings.Skeletons = true
@@ -258,11 +248,9 @@ function ESPModule.Init(Tab, Lib)
         Settings.Names = true
         Settings.Usernames = true
         Settings.Distance = true
-        -- Note: This won't visually update toggle UI state unless your library supports it, 
-        -- but the logic will activate immediately.
     end)
 
-    Tab:CreateButton("Disable All Visuals", function()
+    Master:CreateButton("Disable All Visuals", function()
         Settings.Enabled = false
         Settings.Boxes = false
         Settings.Skeletons = false
@@ -291,9 +279,23 @@ function ESPModule.Init(Tab, Lib)
     Tab:CreateToggle("Team Check", false, function(s) Settings.TeamCheck = s end)
     Tab:CreateToggle("Friend Check", false, function(s) Settings.FriendCheck = s end)
 
-    Players.PlayerAdded:Connect(function(p) CreateESP(p) end)
-    Players.PlayerRemoving:Connect(RemoveESP)
-    for _, p in pairs(Players:GetPlayers()) do CreateESP(p) end
+    -- Logic initialization in the background
+    task.spawn(function()
+        local function RemoveESP(Player)
+            local Data = Cache[Player]
+            if Data then
+                for _, v in pairs(Data) do
+                    if type(v) == "table" then for _, l in pairs(v) do l:Remove() end
+                    elseif v.Remove then v:Remove() end
+                end
+                Cache[Player] = nil
+            end
+        end
+
+        Players.PlayerAdded:Connect(CreateESP)
+        Players.PlayerRemoving:Connect(RemoveESP)
+        for _, p in pairs(Players:GetPlayers()) do CreateESP(p) end
+    end)
 end
 
 return ESPModule
