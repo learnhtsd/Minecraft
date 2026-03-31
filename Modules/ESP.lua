@@ -256,6 +256,7 @@ end)
 
 function ESPModule.Init(Tab, Lib)
     Tab:CreateSection("Main")
+    
     Tab:CreateToggle("Enable ESP", false, function(s) 
         Settings.Enabled = s 
         if s then 
@@ -265,10 +266,10 @@ function ESPModule.Init(Tab, Lib)
         end
     end)
 
-    Tab:CreateSection("Visuals")
+    Tab:CreateSection("Quick Actions")
     
-    -- Added: Enable/Disable All Buttons
-    Tab:CreateButton("Enable All Visuals", function()
+    -- Using CreateAction(Title, ButtonText, Callback) per your UI Engine
+    Tab:CreateAction("Master Toggle", "Enable All", function()
         Settings.Boxes = true
         Settings.Skeletons = true
         Settings.HealthBars = true
@@ -276,9 +277,11 @@ function ESPModule.Init(Tab, Lib)
         Settings.Names = true
         Settings.Usernames = true
         Settings.Distance = true
+        -- Note: Toggles in the UI won't visually slide 'On', 
+        -- but the features will start working immediately.
     end)
 
-    Tab:CreateButton("Disable All Visuals", function()
+    Tab:CreateAction("Master Toggle", "Disable All", function()
         Settings.Boxes = false
         Settings.Skeletons = false
         Settings.HealthBars = false
@@ -288,6 +291,7 @@ function ESPModule.Init(Tab, Lib)
         Settings.Distance = false
     end)
 
+    Tab:CreateSection("Visuals")
     Tab:CreateToggle("Boxes (Outlined)", false, function(s) Settings.Boxes = s end)
     Tab:CreateToggle("Skeleton", false, function(s) Settings.Skeletons = s end)
     Tab:CreateToggle("Health Bars", false, function(s) Settings.HealthBars = s end)
@@ -303,7 +307,11 @@ function ESPModule.Init(Tab, Lib)
     Tab:CreateToggle("Team Check", false, function(s) Settings.TeamCheck = s end)
     Tab:CreateToggle("Friend Check", false, function(s) Settings.FriendCheck = s end)
 
-    Players.PlayerAdded:Connect(function(p) if Settings.Enabled then CreateESP(p) end end)
+    -- Player Event Listeners
+    Players.PlayerAdded:Connect(function(p) 
+        if Settings.Enabled then CreateESP(p) end 
+    end)
+    
     Players.PlayerRemoving:Connect(RemoveESP)
 end
 
