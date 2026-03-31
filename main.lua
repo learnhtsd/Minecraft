@@ -1,7 +1,7 @@
 local User = "learnhtsd"
 local Repo = "Minecraft"
 local Branch = "main" 
-local Version = "v0.0.007"
+local Version = "v0.0.008"
 
 -- ==========================================
 -- UI ENGINE START
