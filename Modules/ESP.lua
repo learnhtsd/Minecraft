@@ -30,34 +30,18 @@ local Settings = {
 
 local Cache = {}
 
-local SkeletonConnections = {
-    R15 = {
-        {"Head", "UpperTorso"}, {"UpperTorso", "LowerTorso"},
-        {"UpperTorso", "LeftUpperArm"}, {"LeftUpperArm", "LeftLowerArm"}, {"LeftLowerArm", "LeftHand"},
-        {"UpperTorso", "RightUpperArm"}, {"RightUpperArm", "RightLowerArm"}, {"RightLowerArm", "RightHand"},
-        {"LowerTorso", "LeftUpperLeg"}, {"LeftUpperLeg", "LeftLowerLeg"}, {"LeftLowerLeg", "LeftFoot"},
-        {"LowerTorso", "RightUpperLeg"}, {"RightUpperLeg", "RightLowerLeg"}, {"RightLowerLeg", "RightFoot"}
-    },
-    R6 = {
-        {"Head", "Torso"}, {"Torso", "Left Arm"}, {"Torso", "Right Arm"},
-        {"Torso", "Left Leg"}, {"Torso", "Right Leg"}
-    }
-}
-
 -- =========================
 -- UTILITIES
 -- =========================
 
-local function IsVisible(Character)
+local function IsVisible(Character, TargetPosition)
     if not Settings.WallCheck then return true end
-    local Part = Character:FindFirstChild("HumanoidRootPart") or Character:FindFirstChild("Head")
-    if not Part then return false end
     
     local Params = RaycastParams.new()
     Params.FilterType = Enum.RaycastFilterType.Exclude
     Params.FilterDescendantsInstances = {LocalPlayer.Character, Character, Camera}
 
-    local Result = workspace:Raycast(Camera.CFrame.Position, (Part.Position - Camera.CFrame.Position).Unit * 1000, Params)
+    local Result = workspace:Raycast(Camera.CFrame.Position, (TargetPosition - Camera.CFrame.Position).Unit * 1000, Params)
     return Result == nil
 end
 
@@ -70,11 +54,11 @@ local function CreateESP(Player)
         HealthBar = Drawing.new("Square"),
         HealthBarBG = Drawing.new("Square"),
         Tracer = Drawing.new("Line"),
-        LookLine = Drawing.new("Line"), -- NEW
-        HeadDot = Drawing.new("Circle"), -- NEW
+        LookLine = Drawing.new("Line"),
+        HeadDot = Drawing.new("Circle"),
         Text = Drawing.new("Text"),
         SkeletonLines = {},
-        Highlight = nil -- NEW (Instance based)
+        Highlight = nil
     }
 
     -- Basic Setup
@@ -141,96 +125,120 @@ RunService.RenderStepped:Connect(function()
     
     for Player, Data in pairs(Cache) do
         local Character = Player.Character
-        local Root = Character and Character:FindFirstChild("HumanoidRootPart")
-        local Hum = Character and Character:FindFirstChild("Humanoid")
-        local Head = Character and Character:FindFirstChild("Head")
-
-        if Root and Hum and Hum.Health > 0 then
-            local RootPos, OnScreen = Camera:WorldToViewportPoint(Root.Position)
-            local Visible = IsVisible(Character)
-            local CurrentColor = Visible and Settings.VisibleColor or Settings.OccludedColor
+        
+        -- Check if character exists and has physical parts (bypass strict naming)
+        if Character and Character:FindFirstChildWhichIsA("BasePart") then
+            -- Get dynamic bounding box for custom models
+            local ModelCFrame, ModelSize = Character:GetBoundingBox()
             
-            -- CHAMS LOGIC (Highlights)
-            if Settings.Chams then
-                if not Data.Highlight then
-                    Data.Highlight = Instance.new("Highlight")
-                    Data.Highlight.Parent = game:GetService("CoreGui") -- Hidden from game
-                end
-                Data.Highlight.Adornee = Character
-                Data.Highlight.Enabled = true
-                Data.Highlight.FillColor = CurrentColor
-                Data.Highlight.OutlineColor = Color3.new(1,1,1)
-                Data.Highlight.FillTransparency = 0.5
-            elseif Data.Highlight then
-                Data.Highlight.Enabled = false
+            local Hum = Character:FindFirstChildWhichIsA("Humanoid")
+            local IsAlive = true
+            local HealthScale = 1
+            
+            -- Dynamic health checking (fallback to 100% if no humanoid is found)
+            if Hum then
+                if Hum.Health <= 0 then IsAlive = false end
+                HealthScale = math.clamp(Hum.Health / Hum.MaxHealth, 0, 1)
             end
 
-            if OnScreen and RootPos.Z > 0 then
-                local HeadPos = Camera:WorldToViewportPoint(Head.Position + Vector3.new(0, 0.5, 0))
-                local LegPos = Camera:WorldToViewportPoint(Root.Position - Vector3.new(0, 3, 0))
-                local Height = math.abs(HeadPos.Y - LegPos.Y)
-                local Width = Height / 1.5
-                local TopLeft = Vector2.new(RootPos.X - Width / 2, RootPos.Y - Height / 2)
-
-                -- 1. Boxes
-                Data.Box.Visible = Settings.Boxes
-                Data.BoxOutline.Visible = Settings.Boxes
-                if Settings.Boxes then
-                    Data.Box.Position = TopLeft
-                    Data.Box.Size = Vector2.new(Width, Height)
-                    Data.Box.Color = CurrentColor
-                    Data.BoxOutline.Position = TopLeft - Vector2.new(1,1)
-                    Data.BoxOutline.Size = Data.Box.Size + Vector2.new(2,2)
-                end
-
-                -- 2. Look Lines (Aim Direction)
-                Data.LookLine.Visible = Settings.LookLines
-                if Settings.LookLines then
-                    local LookAt = Head.Position + (Head.CFrame.LookVector * 5)
-                    local LookPos = Camera:WorldToViewportPoint(LookAt)
-                    Data.LookLine.From = Vector2.new(HeadPos.X, HeadPos.Y)
-                    Data.LookLine.To = Vector2.new(LookPos.X, LookPos.Y)
-                    Data.LookLine.Color = Color3.new(1, 1, 1)
-                end
-
-                -- 3. Head Dots
-                Data.HeadDot.Visible = Settings.HeadDots
-                if Settings.HeadDots then
-                    Data.HeadDot.Position = Vector2.new(HeadPos.X, HeadPos.Y)
-                    Data.HeadDot.Color = CurrentColor
-                end
-
-                -- 4. Health Bar
-                Data.HealthBar.Visible = Settings.HealthBars
-                Data.HealthBarBG.Visible = Settings.HealthBars
-                if Settings.HealthBars then
-                    local HealthScale = math.clamp(Hum.Health / Hum.MaxHealth, 0, 1)
-                    Data.HealthBarBG.Position = Vector2.new(TopLeft.X - 6, TopLeft.Y)
-                    Data.HealthBarBG.Size = Vector2.new(4, Height)
-                    Data.HealthBar.Position = Vector2.new(TopLeft.X - 5, TopLeft.Y + Height - (Height * HealthScale) + 1)
-                    Data.HealthBar.Size = Vector2.new(2, (Height * HealthScale) - 2)
-                    Data.HealthBar.Color = Color3.new(1, 0, 0):Lerp(Color3.new(0, 1, 0), HealthScale)
-                end
-
-                -- 5. Text Info
-                Data.Text.Visible = (Settings.Names or Settings.Usernames or Settings.Distance)
-                if Data.Text.Visible then
-                    local Content = ""
-                    if Settings.Names then Content = Content .. Player.DisplayName .. "\n" end
-                    if Settings.Usernames then Content = Content .. "@" .. Player.Name .. "\n" end
-                    if Settings.Distance then 
-                        Content = Content .. "[" .. math.floor(RootPos.Z) .. "m]"
+            if IsAlive and ModelSize.Magnitude > 0 then
+                local RootPos, OnScreen = Camera:WorldToViewportPoint(ModelCFrame.Position)
+                local Visible = IsVisible(Character, ModelCFrame.Position)
+                local CurrentColor = Visible and Settings.VisibleColor or Settings.OccludedColor
+                
+                -- CHAMS LOGIC (Highlights)
+                if Settings.Chams then
+                    if not Data.Highlight then
+                        Data.Highlight = Instance.new("Highlight")
+                        Data.Highlight.Parent = game:GetService("CoreGui")
                     end
-                    Data.Text.Text = Content
-                    Data.Text.Position = Vector2.new(RootPos.X, RootPos.Y + (Height/2) + 2)
+                    Data.Highlight.Adornee = Character
+                    Data.Highlight.Enabled = true
+                    Data.Highlight.FillColor = CurrentColor
+                    Data.Highlight.OutlineColor = Color3.new(1,1,1)
+                    Data.Highlight.FillTransparency = 0.5
+                elseif Data.Highlight then
+                    Data.Highlight.Enabled = false
                 end
 
-                -- Tracers
-                Data.Tracer.Visible = Settings.Tracers
-                if Settings.Tracers then
-                    Data.Tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
-                    Data.Tracer.To = Vector2.new(RootPos.X, RootPos.Y)
-                    Data.Tracer.Color = CurrentColor
+                if OnScreen and RootPos.Z > 0 then
+                    -- Calculate Head and Legs dynamically using the Bounding Box size
+                    local Head3D = ModelCFrame.Position + Vector3.new(0, ModelSize.Y / 2, 0)
+                    local Leg3D = ModelCFrame.Position - Vector3.new(0, ModelSize.Y / 2, 0)
+                    
+                    local HeadPos = Camera:WorldToViewportPoint(Head3D)
+                    local LegPos = Camera:WorldToViewportPoint(Leg3D)
+                    
+                    local Height = math.abs(HeadPos.Y - LegPos.Y)
+                    local Width = Height / 1.5
+                    local TopLeft = Vector2.new(RootPos.X - Width / 2, RootPos.Y - Height / 2)
+
+                    -- 1. Boxes
+                    Data.Box.Visible = Settings.Boxes
+                    Data.BoxOutline.Visible = Settings.Boxes
+                    if Settings.Boxes then
+                        Data.Box.Position = TopLeft
+                        Data.Box.Size = Vector2.new(Width, Height)
+                        Data.Box.Color = CurrentColor
+                        Data.BoxOutline.Position = TopLeft - Vector2.new(1,1)
+                        Data.BoxOutline.Size = Data.Box.Size + Vector2.new(2,2)
+                    end
+
+                    -- 2. Look Lines (Aim Direction)
+                    Data.LookLine.Visible = Settings.LookLines
+                    if Settings.LookLines then
+                        -- Get look vector from actual head if it exists, otherwise use the whole model's LookVector
+                        local ActualHead = Character:FindFirstChild("Head")
+                        local LookDirection = ActualHead and ActualHead.CFrame.LookVector or ModelCFrame.LookVector
+                        
+                        local LookAt = Head3D + (LookDirection * 5)
+                        local LookPos = Camera:WorldToViewportPoint(LookAt)
+                        
+                        Data.LookLine.From = Vector2.new(HeadPos.X, HeadPos.Y)
+                        Data.LookLine.To = Vector2.new(LookPos.X, LookPos.Y)
+                        Data.LookLine.Color = Color3.new(1, 1, 1)
+                    end
+
+                    -- 3. Head Dots
+                    Data.HeadDot.Visible = Settings.HeadDots
+                    if Settings.HeadDots then
+                        Data.HeadDot.Position = Vector2.new(HeadPos.X, HeadPos.Y)
+                        Data.HeadDot.Color = CurrentColor
+                    end
+
+                    -- 4. Health Bar
+                    Data.HealthBar.Visible = Settings.HealthBars
+                    Data.HealthBarBG.Visible = Settings.HealthBars
+                    if Settings.HealthBars then
+                        Data.HealthBarBG.Position = Vector2.new(TopLeft.X - 6, TopLeft.Y)
+                        Data.HealthBarBG.Size = Vector2.new(4, Height)
+                        Data.HealthBar.Position = Vector2.new(TopLeft.X - 5, TopLeft.Y + Height - (Height * HealthScale) + 1)
+                        Data.HealthBar.Size = Vector2.new(2, (Height * HealthScale) - 2)
+                        Data.HealthBar.Color = Color3.new(1, 0, 0):Lerp(Color3.new(0, 1, 0), HealthScale)
+                    end
+
+                    -- 5. Text Info
+                    Data.Text.Visible = (Settings.Names or Settings.Usernames or Settings.Distance)
+                    if Data.Text.Visible then
+                        local Content = ""
+                        if Settings.Names then Content = Content .. Player.DisplayName .. "\n" end
+                        if Settings.Usernames then Content = Content .. "@" .. Player.Name .. "\n" end
+                        if Settings.Distance then 
+                            Content = Content .. "[" .. math.floor(RootPos.Z) .. "m]"
+                        end
+                        Data.Text.Text = Content
+                        Data.Text.Position = Vector2.new(RootPos.X, RootPos.Y + (Height/2) + 2)
+                    end
+
+                    -- Tracers
+                    Data.Tracer.Visible = Settings.Tracers
+                    if Settings.Tracers then
+                        Data.Tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+                        Data.Tracer.To = Vector2.new(RootPos.X, RootPos.Y)
+                        Data.Tracer.Color = CurrentColor
+                    end
+                else
+                    HideESP(Data)
                 end
             else
                 HideESP(Data)
