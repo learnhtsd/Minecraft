@@ -529,7 +529,7 @@ function Library:CreateWindow()
             end)
         end
 
-            function Tab:CreateInfoBox(Title, Description)
+        function Tab:CreateInfoBox(Title, Description)
             local InfoFrame = Instance.new("Frame")
             InfoFrame.Size = UDim2.new(1, 0, 0, 0) 
             InfoFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 33)
